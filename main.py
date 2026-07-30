@@ -2,61 +2,90 @@ import os
 from dotenv import load_dotenv
 from google import genai
 import feedparser
-
-# Load API key
-load_dotenv()
-
-api_key = os.getenv("GEMINI_API_KEY")
-
-# Gemini client
-client = genai.Client(api_key=api_key)
+from datetime import datetime
+from apscheduler.schedulers.blocking import BlockingScheduler
 
 
-# Fetch AI news
-rss_url = "https://www.artificialintelligence-news.com/feed/"
+def generate_digest():
 
-feed = feedparser.parse(rss_url)
+    # Load API key
+    load_dotenv()
 
-# Get first 3 news articles
-articles = []
+    api_key = os.getenv("GEMINI_API_KEY")
 
-for entry in feed.entries[:3]:
-    articles.append({
-        "title": entry.title,
-        "link": entry.link,
-        "summary": entry.description
-    })
+    client = genai.Client(api_key=api_key)
 
 
-# Send news to Gemini
-news_text = ""
+    # Fetch AI news
+    rss_url = "https://www.artificialintelligence-news.com/feed/"
 
-for article in articles:
-    news_text += f"""
+    feed = feedparser.parse(rss_url)
+
+    articles = []
+
+    for entry in feed.entries[:3]:
+        articles.append({
+            "title": entry.title,
+            "link": entry.link,
+            "summary": entry.description
+        })
+
+
+    # Send news to Gemini
+    news_text = ""
+
+    for article in articles:
+        news_text += f"""
 Title: {article['title']}
 Description: {article['summary']}
 """
 
 
-response = client.models.generate_content(
-    model="gemini-flash-lite-latest",
-    contents=f"""
-Summarize these AI news articles.
-Give:
+    response = client.models.generate_content(
+        model="gemini-flash-lite-latest",
+        contents=f"""
+Create an AI Daily Digest.
+
+For each article provide:
 - Title
-- 2-3 line summary
-- Key takeaway
+- Category
+- Summary
+- Key Takeaway
+- Why it matters
 
 News:
 {news_text}
 """
-)
+    )
 
-digest = response.text
 
-print(digest)
+    date = datetime.now().strftime("%d %B %Y")
 
-with open("ai_news_digest.txt", "w", encoding="utf-8") as file:
-    file.write(digest)
+    digest = f"""
+# AI Daily Digest
+Date: {date}
 
-print("\nDigest saved successfully!")
+{response.text}
+"""
+
+
+    print(digest)
+
+
+    with open("ai_news_digest.txt", "w", encoding="utf-8") as file:
+        file.write(digest)
+
+
+    print("Digest saved successfully!")
+
+
+# Run once immediately
+generate_digest()
+
+
+# Schedule every 24 hours
+scheduler = BlockingScheduler()
+
+scheduler.add_job(generate_digest, "interval", days=1)
+
+scheduler.start()
