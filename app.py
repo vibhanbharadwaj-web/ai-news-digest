@@ -3,7 +3,6 @@ import feedparser
 from datetime import datetime
 import os
 import re
-import html
 from dotenv import load_dotenv
 from google import genai
 
@@ -73,29 +72,29 @@ st.html("""
     box-shadow: 0 8px 25px rgba(199,125,255,0.25);
 ">
 
-    <h1 style="
-        font-size: 44px;
-        margin: 0 0 10px 0;
-        color: white;
-    ">
-        🤖 AI News Digest
-    </h1>
+<h1 style="
+    font-size: 44px;
+    margin: 0 0 10px 0;
+    color: white;
+">
+🤖 AI News Digest
+</h1>
 
-    <p style="
-        font-size: 20px;
-        margin: 5px;
-        color: white;
-    ">
-        AI-powered daily news summarizer
-    </p>
+<p style="
+    font-size: 20px;
+    margin: 5px;
+    color: white;
+">
+AI-powered daily news summarizer
+</p>
 
-    <p style="
-        font-size: 16px;
-        margin: 8px;
-        color: white;
-    ">
-        📰 Fetch • ✨ Summarize • 🏷️ Categorize • 💡 Understand
-    </p>
+<p style="
+    font-size: 16px;
+    margin: 8px;
+    color: white;
+">
+📰 Fetch • ✨ Summarize • 🏷️ Categorize • 💡 Understand
+</p>
 
 </div>
 """)
@@ -104,7 +103,7 @@ st.html("""
 # FETCH AI NEWS
 # ==========================================
 
-rss_url = "https://www.artificialintelligence-news.com/feed/"
+rss_url = "https://venturebeat.com/category/ai/feed/"
 
 feed = feedparser.parse(rss_url)
 
@@ -112,37 +111,48 @@ articles = []
 
 for entry in feed.entries[:5]:
 
-    raw_summary = entry.get("description", "")
+    title = entry.get("title", "Untitled Article")
+    link = entry.get("link", "")
 
-    # Decode HTML entities
-    clean_summary = html.unescape(raw_summary)
-
-    # Remove HTML tags
-    clean_summary = re.sub(
-        r"<[^>]*>",
-        "",
-        clean_summary
+    raw_summary = entry.get(
+        "summary",
+        entry.get("description", "")
     )
 
-    # Decode HTML entities again
-    clean_summary = html.unescape(clean_summary)
+    # Remove HTML
+    clean_summary = re.sub(
+        r"<[^>]+>",
+        "",
+        raw_summary
+    )
 
-    # Remove extra whitespace
+    # Decode common HTML entities
+    clean_summary = (
+        clean_summary
+        .replace("&amp;", "&")
+        .replace("&quot;", '"')
+        .replace("&#x27;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+    )
+
     clean_summary = " ".join(
         clean_summary.split()
     )
 
-    articles.append({
-        "title": entry.get(
-            "title",
-            "Untitled Article"
-        ),
-        "link": entry.get(
-            "link",
-            "#"
-        ),
-        "summary": clean_summary
-    })
+    if title and link:
+
+        articles.append({
+            "title": title,
+            "link": link,
+            "summary": clean_summary
+        })
+
+# ==========================================
+# SOURCE NAME
+# ==========================================
+
+source_name = "VentureBeat AI"
 
 # ==========================================
 # STATISTICS
@@ -159,7 +169,7 @@ with col1:
 with col2:
     st.metric(
         "📡 Source",
-        "AI News"
+        source_name
     )
 
 with col3:
@@ -171,7 +181,7 @@ with col3:
 st.divider()
 
 # ==========================================
-# LATEST AI NEWS
+# LATEST NEWS
 # ==========================================
 
 st.subheader("📰 Latest AI News")
@@ -187,27 +197,19 @@ else:
 
     for article in articles:
 
-        # Escape content before displaying as HTML
-        safe_title = html.escape(
-            article["title"]
-        )
-
-        safe_summary = html.escape(
-            article["summary"][:500]
-        )
-
         st.markdown(
             f"""
-            <div class="news-card">
+<div class="news-card">
 
-                <h3>{safe_title}</h3>
+<h3>{article['title']}</h3>
 
-                <p>
-                    {safe_summary}...
-                </p>
+<p>
+{article['summary'][:500]}
+{"..." if len(article['summary']) > 500 else ""}
+</p>
 
-            </div>
-            """,
+</div>
+""",
             unsafe_allow_html=True
         )
 
@@ -229,49 +231,42 @@ if st.button(
     use_container_width=True
 ):
 
-    if not api_key:
+    if not articles:
+
+        st.error(
+            "❌ No news articles are available "
+            "to summarize."
+        )
+
+    elif not api_key:
 
         st.error(
             "❌ Gemini API key not found. "
             "Please check your Streamlit Secrets."
         )
 
-    elif not articles:
-
-        st.warning(
-            "⚠️ No articles available "
-            "to summarize."
-        )
-
     else:
 
         try:
 
-            # Create Gemini client
             client = genai.Client(
                 api_key=api_key
             )
 
-            # Prepare news text
             news_text = ""
 
             for article in articles:
 
                 news_text += f"""
 
-Title:
-{article['title']}
+Title: {article['title']}
 
-Description:
-{article['summary']}
+Description: {article['summary']}
 
-Source URL:
-{article['link']}
+Source URL: {article['link']}
 
---------------------------------
 """
 
-            # Generate AI digest
             with st.spinner(
                 "🤖 Gemini is summarizing the latest AI news..."
             ):
@@ -281,53 +276,39 @@ Source URL:
                     model="gemini-flash-lite-latest",
 
                     contents=f"""
-You are an AI news analyst.
+Create a professional AI Daily Digest.
 
-Create a professional and easy-to-understand
-AI Daily Digest from the following news articles.
-
-For EVERY article provide:
+For every article provide:
 
 1. Title
 2. Category
 3. Summary
 4. Key Takeaway
 5. Why it matters
-6. Source
+6. Source URL
 
 Use categories such as:
 
-- LLMs
-- AI Research
-- Open Source
-- Product Launches
-- Funding
-- Robotics
-- AI Tools
-- Regulation
-- Cybersecurity
-- Infrastructure
-- Agentic AI
-- Other
+LLMs
+Research
+Open Source
+Product Launches
+Funding
+Robotics
+AI Tools
+Regulation
+Infrastructure
+Cybersecurity
+Other
 
-Important instructions:
+Keep the summaries concise,
+professional and easy to understand.
 
-- Keep each summary concise.
-- Use simple language.
-- Do not invent information.
-- Base the digest only on the provided articles.
-- Clearly separate each article.
-- Make the result professional and suitable for a portfolio project.
-
-News articles:
+News:
 
 {news_text}
 """
                 )
-
-            # ======================================
-            # DISPLAY RESULT
-            # ======================================
 
             st.success(
                 "✅ Digest generated successfully!"
@@ -341,9 +322,9 @@ News articles:
                 response.text
             )
 
-            # ======================================
+            # ==================================
             # SAVE DIGEST
-            # ======================================
+            # ==================================
 
             date = datetime.now().strftime(
                 "%d %B %Y"
@@ -371,7 +352,7 @@ Date: {date}
         except Exception as e:
 
             st.error(
-                f"❌ Error generating AI digest: {e}"
+                f"❌ Gemini error: {str(e)}"
             )
 
 # ==========================================
