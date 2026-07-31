@@ -6,6 +6,7 @@ import re
 from dotenv import load_dotenv
 from google import genai
 
+
 # ==========================================
 # PAGE SETTINGS
 # ==========================================
@@ -15,6 +16,7 @@ st.set_page_config(
     page_icon="🤖",
     layout="wide"
 )
+
 
 # ==========================================
 # CUSTOM CSS
@@ -49,13 +51,23 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
 # ==========================================
-# LOAD API KEY
+# LOAD GEMINI API KEY
 # ==========================================
 
 load_dotenv()
 
+# First try local .env
 api_key = os.getenv("GEMINI_API_KEY")
+
+# If running on Streamlit Cloud, use Secrets
+if not api_key:
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        api_key = None
+
 
 # ==========================================
 # PINK HEADER
@@ -71,6 +83,7 @@ st.html("""
     margin-bottom: 30px;
     box-shadow: 0 8px 25px rgba(199,125,255,0.25);
 ">
+
     <h1 style="
         font-size: 44px;
         margin: 0 0 10px 0;
@@ -94,24 +107,26 @@ st.html("""
     ">
         📰 Fetch • ✨ Summarize • 🏷️ Categorize • 💡 Understand
     </p>
+
 </div>
 """)
+
 
 # ==========================================
 # FETCH AI NEWS
 # ==========================================
 
-rss_url = "https://www.artificialintelligence-news.com/feed/"
+rss_url = "https://feeds.feedburner.com/venturebeat/SZYF"
 
 feed = feedparser.parse(rss_url)
 
 articles = []
 
-for entry in feed.entries[:3]:
+for entry in feed.entries[:5]:
 
-    raw_summary = entry.description
+    raw_summary = entry.get("summary", "")
 
-    # Remove HTML tags from RSS description
+    # Remove HTML tags
     clean_summary = re.sub(
         r"<[^>]+>",
         "",
@@ -124,10 +139,17 @@ for entry in feed.entries[:3]:
     )
 
     articles.append({
-        "title": entry.title,
-        "link": entry.link,
+        "title": entry.get(
+            "title",
+            "Untitled"
+        ),
+        "link": entry.get(
+            "link",
+            ""
+        ),
         "summary": clean_summary
     })
+
 
 # ==========================================
 # STATISTICS
@@ -136,24 +158,29 @@ for entry in feed.entries[:3]:
 col1, col2, col3 = st.columns(3)
 
 with col1:
+
     st.metric(
         "📰 Articles",
         len(articles)
     )
 
 with col2:
+
     st.metric(
         "📡 Source",
-        "AI News"
+        "VentureBeat AI"
     )
 
 with col3:
+
     st.metric(
         "📅 Date",
         datetime.now().strftime("%d %b %Y")
     )
 
+
 st.divider()
+
 
 # ==========================================
 # LATEST NEWS
@@ -161,27 +188,40 @@ st.divider()
 
 st.subheader("📰 Latest AI News")
 
-for article in articles:
 
-    st.markdown(
-        f"""
-<div class="news-card">
+if len(articles) == 0:
 
-<h3>{article['title']}</h3>
-
-<p>
-{article['summary'][:500]}...
-</p>
-
-</div>
-""",
-        unsafe_allow_html=True
+    st.warning(
+        "⚠️ No news articles were found right now. "
+        "Please try again later."
     )
 
-    st.link_button(
-        "🔗 Read Original Article",
-        article["link"]
-    )
+else:
+
+    for article in articles:
+
+        st.markdown(
+            f"""
+            <div class="news-card">
+
+                <h3>{article['title']}</h3>
+
+                <p>
+                    {article['summary'][:500]}...
+                </p>
+
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        if article["link"]:
+
+            st.link_button(
+                "🔗 Read Original Article",
+                article["link"]
+            )
+
 
 # ==========================================
 # AI DIGEST
@@ -191,23 +231,43 @@ st.divider()
 
 st.subheader("✨ AI-Powered Summary")
 
+
 if st.button(
     "✨ Generate AI Digest",
     use_container_width=True
 ):
 
+    # ======================================
+    # CHECK API KEY
+    # ======================================
+
     if not api_key:
 
         st.error(
             "❌ Gemini API key not found. "
-            "Please check your .env file."
+            "Please add GEMINI_API_KEY to Streamlit Secrets."
+        )
+
+    elif not articles:
+
+        st.warning(
+            "⚠️ No articles available to summarize."
         )
 
     else:
 
+        # ==================================
+        # CONNECT TO GEMINI
+        # ==================================
+
         client = genai.Client(
             api_key=api_key
         )
+
+
+        # ==================================
+        # PREPARE NEWS
+        # ==================================
 
         news_text = ""
 
@@ -219,16 +279,26 @@ Title: {article['title']}
 Description: {article['summary']}
 
 Source URL: {article['link']}
+
+--------------------------------
 """
+
+
+        # ==================================
+        # GENERATE DIGEST
+        # ==================================
 
         with st.spinner(
             "🤖 Gemini is summarizing the latest AI news..."
         ):
 
-            response = client.models.generate_content(
-                model="gemini-flash-lite-latest",
+            try:
 
-                contents=f"""
+                response = client.models.generate_content(
+
+                    model="gemini-flash-lite-latest",
+
+                    contents=f"""
 Create a professional AI Daily Digest.
 
 For every article provide:
@@ -253,48 +323,71 @@ Regulation
 Infrastructure
 Other
 
-Keep the summaries concise and easy to understand.
+Keep the summaries concise,
+professional and easy to understand.
+
+Do not invent information.
 
 News:
 
 {news_text}
 """
-            )
+                )
 
-        st.success(
-            "✅ Digest generated successfully!"
-        )
 
-        st.markdown("## 🧠 AI Generated Digest")
+                # ==================================
+                # DISPLAY RESULT
+                # ==================================
 
-        st.markdown(response.text)
+                st.success(
+                    "✅ Digest generated successfully!"
+                )
 
-        # ==========================================
-        # SAVE DIGEST
-        # ==========================================
+                st.markdown(
+                    "## 🧠 AI Generated Digest"
+                )
 
-        date = datetime.now().strftime(
-            "%d %B %Y"
-        )
+                st.markdown(
+                    response.text
+                )
 
-        digest = f"""# AI Daily Digest
+
+                # ==================================
+                # SAVE DIGEST
+                # ==================================
+
+                date = datetime.now().strftime(
+                    "%d %B %Y"
+                )
+
+                digest = f"""# AI Daily Digest
 
 Date: {date}
 
 {response.text}
 """
 
-        with open(
-            "ai_news_digest.txt",
-            "w",
-            encoding="utf-8"
-        ) as file:
 
-            file.write(digest)
+                with open(
+                    "ai_news_digest.txt",
+                    "w",
+                    encoding="utf-8"
+                ) as file:
 
-        st.success(
-            "💾 Digest saved to ai_news_digest.txt"
-        )
+                    file.write(digest)
+
+
+                st.success(
+                    "💾 Digest saved to ai_news_digest.txt"
+                )
+
+
+            except Exception as e:
+
+                st.error(
+                    f"❌ Gemini error: {e}"
+                )
+
 
 # ==========================================
 # FOOTER
